@@ -8,6 +8,12 @@ import (
 	"unicode/utf8"
 )
 
+const (
+	statusCodeOK = iota
+	statusCodeNotFound
+	statusCodeErr
+)
+
 type Grep struct {
 	args []string
 	r    io.Reader
@@ -21,30 +27,37 @@ func NewGrep(args []string, r io.Reader) *Grep {
 }
 
 func (g *Grep) Run() {
+	status, err := g.run()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Grep failed: %v\n", err)
+		os.Exit(2)
+	}
+
+	os.Exit(status)
+}
+
+func (g *Grep) run() (int, error) {
 	if len(g.args) < 3 || g.args[1] != "-E" {
-		g.reportErrAndExit("usage: mygrep -E <pattern>\n")
+		return statusCodeErr, fmt.Errorf("usage: mygrep -E <pattern>")
 	}
 
 	pattern := g.args[2]
 
 	line, err := io.ReadAll(g.r)
 	if err != nil {
-		g.reportErrAndExit(fmt.Sprintf("Failed to read input text: %v\n", err))
+		return statusCodeErr, fmt.Errorf("read input text: %w", err)
 	}
 
 	ok, err := g.matchLine(line, pattern)
 	if err != nil {
-		g.reportErrAndExit(fmt.Sprintf("Failed to match: %v\n", err))
+		return statusCodeErr, fmt.Errorf("matchLine: %w", err)
 	}
 
 	if !ok {
-		os.Exit(1)
+		return statusCodeNotFound, nil
 	}
-}
 
-func (g *Grep) reportErrAndExit(msg string) {
-	fmt.Fprint(os.Stderr, msg)
-	os.Exit(2)
+	return statusCodeOK, nil
 }
 
 func (g *Grep) matchLine(line []byte, pattern string) (bool, error) {
