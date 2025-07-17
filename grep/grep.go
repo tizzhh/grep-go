@@ -61,9 +61,16 @@ func (g *Grep) run() (int, error) {
 }
 
 func (g *Grep) matchLine(line []byte, pattern string) (bool, error) {
-	if utf8.RuneCountInString(pattern) != 1 {
+	var finalPattern string
+
+	switch {
+	case pattern == `\d`:
+		finalPattern = "0123456789"
+	case utf8.RuneCountInString(pattern) == 1:
+		finalPattern = pattern
+	default:
 		return false, fmt.Errorf("unsupported pattern: %q", pattern)
 	}
 
-	return bytes.ContainsAny(line, pattern), nil
+	return bytes.ContainsAny(line, finalPattern), nil
 }
