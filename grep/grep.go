@@ -62,62 +62,50 @@ func (g *Grep) run() (int, error) {
 	return statusCodeOK, nil
 }
 
+//nolint:cyclop
 func (g *Grep) matchLine(line []byte, pattern string) (bool, error) {
+	var (
+		matchFunc  func(r rune) bool
+		groupChars = make(map[rune]struct{})
+	)
+
 	switch {
 	case pattern == `\d`:
-		return g.matchDigit(line), nil
+		matchFunc = unicode.IsDigit
 	case pattern == `\w`:
-		return g.matchAlphaNumeric(line), nil
+		matchFunc = func(r rune) bool {
+			return unicode.IsLetter(r) || unicode.IsDigit(r) || r == '_'
+		}
 	case strings.HasPrefix(pattern, "[") && strings.HasSuffix(pattern, "]"):
-		return g.matchGroup(line, true, strings.Trim(pattern, "[]^")), nil
+		for _, char := range strings.Trim(pattern, "[]^") {
+			groupChars[char] = struct{}{}
+		}
+
+		positive := true
+
+		if strings.HasPrefix(pattern, "[^") {
+			positive = false
+		}
+
+		matchFunc = func(r rune) bool {
+			_, ok := groupChars[r]
+
+			return ok == positive
+		}
 	case utf8.RuneCountInString(pattern) == 1:
 		return bytes.ContainsAny(line, pattern), nil
 	default:
 		return false, fmt.Errorf("unsupported pattern: %q", pattern)
 	}
-}
-
-func (g *Grep) matchDigit(line []byte) bool {
-	n := 0
-	for n < len(line) {
-		r, size := utf8.DecodeRune(line[n:])
-		if unicode.IsDigit(r) {
-			return true
-		}
-		n += size
-	}
-
-	return false
-}
-
-func (g *Grep) matchAlphaNumeric(line []byte) bool {
-	n := 0
-	for n < len(line) {
-		r, size := utf8.DecodeRune(line[n:])
-		if unicode.IsLetter(r) || unicode.IsDigit(r) || r == '_' {
-			return true
-		}
-		n += size
-	}
-
-	return false
-}
-
-func (g *Grep) matchGroup(line []byte, positive bool, chars string) bool {
-	groupChars := make(map[rune]struct{})
-	for _, char := range chars {
-		groupChars[char] = struct{}{}
-	}
 
 	n := 0
 	for n < len(line) {
 		r, size := utf8.DecodeRune(line[n:])
-		_, ok := groupChars[r]
-		if ok && positive || !ok && !positive {
-			return true
+		if matchFunc(r) {
+			return true, nil
 		}
 		n += size
 	}
 
-	return false
+	return false, nil
 }
