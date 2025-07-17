@@ -78,6 +78,24 @@ func TestGrep(t *testing.T) {
 			Args:           []string{"grep", "-E", `\w`},
 			ExpectedStatus: statusCodeOK,
 		},
+		{
+			Name:           "grep match char group",
+			Input:          "abc",
+			Args:           []string{"grep", "-E", `[abc]`},
+			ExpectedStatus: statusCodeOK,
+		},
+		{
+			Name:           "grep match char group not found",
+			Input:          "abc",
+			Args:           []string{"grep", "-E", `[def]`},
+			ExpectedStatus: statusCodeNotFound,
+		},
+		{
+			Name:           "grep match char empty group not found",
+			Input:          "[]",
+			Args:           []string{"grep", "-E", `[abc]`},
+			ExpectedStatus: statusCodeNotFound,
+		},
 	}
 
 	for _, tCase := range tCases {

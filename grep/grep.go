@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 	"unicode"
 	"unicode/utf8"
 )
@@ -67,6 +68,8 @@ func (g *Grep) matchLine(line []byte, pattern string) (bool, error) {
 		return g.matchDigit(line), nil
 	case pattern == `\w`:
 		return g.matchAlphaNumeric(line), nil
+	case strings.HasPrefix(pattern, "[") && strings.HasSuffix(pattern, "]"):
+		return g.matchGroup(line, true, strings.Trim(pattern, "[]^")), nil
 	case utf8.RuneCountInString(pattern) == 1:
 		return bytes.ContainsAny(line, pattern), nil
 	default:
@@ -92,6 +95,25 @@ func (g *Grep) matchAlphaNumeric(line []byte) bool {
 	for n < len(line) {
 		r, size := utf8.DecodeRune(line[n:])
 		if unicode.IsLetter(r) || unicode.IsDigit(r) || r == '_' {
+			return true
+		}
+		n += size
+	}
+
+	return false
+}
+
+func (g *Grep) matchGroup(line []byte, positive bool, chars string) bool {
+	groupChars := make(map[rune]struct{})
+	for _, char := range chars {
+		groupChars[char] = struct{}{}
+	}
+
+	n := 0
+	for n < len(line) {
+		r, size := utf8.DecodeRune(line[n:])
+		_, ok := groupChars[r]
+		if ok && positive || !ok && !positive {
 			return true
 		}
 		n += size
