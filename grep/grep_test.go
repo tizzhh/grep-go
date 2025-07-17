@@ -91,10 +91,40 @@ func TestGrep(t *testing.T) {
 			ExpectedStatus: statusCodeNotFound,
 		},
 		{
-			Name:           "grep match char empty group not found",
+			Name:           "grep match char group input [] not found",
 			Input:          "[]",
 			Args:           []string{"grep", "-E", `[abc]`},
 			ExpectedStatus: statusCodeNotFound,
+		},
+		{
+			Name:           "grep match char empty group input [] not found",
+			Input:          "abc",
+			Args:           []string{"grep", "-E", `[]`},
+			ExpectedStatus: statusCodeNotFound,
+		},
+		{
+			Name:           "grep match char group negative",
+			Input:          "abc",
+			Args:           []string{"grep", "-E", `[^xyz]`},
+			ExpectedStatus: statusCodeOK,
+		},
+		{
+			Name:           "grep match char group negative not found",
+			Input:          "abc",
+			Args:           []string{"grep", "-E", `[^abc]`},
+			ExpectedStatus: statusCodeNotFound,
+		},
+		{
+			Name:           "grep match char group input [] negative",
+			Input:          "[]",
+			Args:           []string{"grep", "-E", `[^abc]`},
+			ExpectedStatus: statusCodeOK,
+		},
+		{
+			Name:           "grep match char empty group",
+			Input:          "abc",
+			Args:           []string{"grep", "-E", `[^]`},
+			ExpectedStatus: statusCodeOK,
 		},
 	}
 
