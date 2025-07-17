@@ -19,7 +19,7 @@ func TestGrep(t *testing.T) {
 		Err            string
 	}{
 		{
-			Name:           "grep happy path match char",
+			Name:           "grep match char",
 			Input:          "aboba",
 			Args:           []string{"grep", "-E", "a"},
 			ExpectedStatus: statusCodeOK,
@@ -49,7 +49,7 @@ func TestGrep(t *testing.T) {
 			Err:            "usage: mygrep -E <pattern>",
 		},
 		{
-			Name:           "grep happy path match digit",
+			Name:           "grep match digit",
 			Input:          "apple123",
 			Args:           []string{"grep", "-E", `\d`},
 			ExpectedStatus: statusCodeOK,
@@ -59,6 +59,24 @@ func TestGrep(t *testing.T) {
 			Input:          "apple",
 			Args:           []string{"grep", "-E", `\d`},
 			ExpectedStatus: statusCodeNotFound,
+		},
+		{
+			Name:           "grep match alphanumeric",
+			Input:          "foo101",
+			Args:           []string{"grep", "-E", `\w`},
+			ExpectedStatus: statusCodeOK,
+		},
+		{
+			Name:           "grep match alphanumeric not found",
+			Input:          "$?!",
+			Args:           []string{"grep", "-E", `\w`},
+			ExpectedStatus: statusCodeNotFound,
+		},
+		{
+			Name:           "grep match alphanumeric not found more complex",
+			Input:          "-+×_-€÷",
+			Args:           []string{"grep", "-E", `\w`},
+			ExpectedStatus: statusCodeOK,
 		},
 	}
 

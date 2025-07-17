@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"unicode"
 	"unicode/utf8"
 )
 
@@ -61,16 +62,40 @@ func (g *Grep) run() (int, error) {
 }
 
 func (g *Grep) matchLine(line []byte, pattern string) (bool, error) {
-	var finalPattern string
-
 	switch {
 	case pattern == `\d`:
-		finalPattern = "0123456789"
+		return g.matchDigit(line), nil
+	case pattern == `\w`:
+		return g.matchAlphaNumeric(line), nil
 	case utf8.RuneCountInString(pattern) == 1:
-		finalPattern = pattern
+		return bytes.ContainsAny(line, pattern), nil
 	default:
 		return false, fmt.Errorf("unsupported pattern: %q", pattern)
 	}
+}
 
-	return bytes.ContainsAny(line, finalPattern), nil
+func (g *Grep) matchDigit(line []byte) bool {
+	n := 0
+	for n < len(line) {
+		r, size := utf8.DecodeRune(line[n:])
+		if unicode.IsDigit(r) {
+			return true
+		}
+		n += size
+	}
+
+	return false
+}
+
+func (g *Grep) matchAlphaNumeric(line []byte) bool {
+	n := 0
+	for n < len(line) {
+		r, size := utf8.DecodeRune(line[n:])
+		if unicode.IsLetter(r) || unicode.IsDigit(r) || r == '_' {
+			return true
+		}
+		n += size
+	}
+
+	return false
 }
