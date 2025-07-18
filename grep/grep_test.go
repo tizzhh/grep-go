@@ -169,6 +169,24 @@ func TestGrep(t *testing.T) {
 			Args:           []string{"grep", "-E", `\d apple`},
 			ExpectedStatus: statusCodeOK,
 		},
+		{
+			Name:           `grep match ^`,
+			Input:          "log",
+			Args:           []string{"grep", "-E", `^log`},
+			ExpectedStatus: statusCodeOK,
+		},
+		{
+			Name:           `grep match ^ not found`,
+			Input:          "slog",
+			Args:           []string{"grep", "-E", `^log`},
+			ExpectedStatus: statusCodeNotFound,
+		},
+		{
+			Name:           `grep match ^ with new line`,
+			Input:          "slog\nlog",
+			Args:           []string{"grep", "-E", `^log`},
+			ExpectedStatus: statusCodeOK,
+		},
 	}
 
 	for _, tCase := range tCases {
