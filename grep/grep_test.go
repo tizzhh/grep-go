@@ -38,9 +38,10 @@ func TestGrep(t *testing.T) {
 		},
 		{
 			Name:           "grep invalid pattern",
-			Args:           []string{"grep", "-E", "[]()"},
+			Input:          "abc",
+			Args:           []string{"grep", "-E", "[abc"},
 			ExpectedStatus: statusCodeErr,
-			Err:            "unsupported pattern: \"[]()\"",
+			Err:            "brackets [] not balanced",
 		},
 		{
 			Name:           "grep invalid option",
@@ -124,6 +125,48 @@ func TestGrep(t *testing.T) {
 			Name:           "grep match char empty group",
 			Input:          "abc",
 			Args:           []string{"grep", "-E", `[^]`},
+			ExpectedStatus: statusCodeOK,
+		},
+		{
+			Name:           `grep match \d apple`,
+			Input:          "1 apple",
+			Args:           []string{"grep", "-E", `\d apple`},
+			ExpectedStatus: statusCodeOK,
+		},
+		{
+			Name:           `grep match \d apple not found`,
+			Input:          "1 orange",
+			Args:           []string{"grep", "-E", `\d apple`},
+			ExpectedStatus: statusCodeNotFound,
+		},
+		{
+			Name:           `grep match \d\d\d apple`,
+			Input:          "100 apples",
+			Args:           []string{"grep", "-E", `\d\d\d apple`},
+			ExpectedStatus: statusCodeOK,
+		},
+		{
+			Name:           `grep match \d\d\d apple not found`,
+			Input:          "1 apple",
+			Args:           []string{"grep", "-E", `\d\d\d apple`},
+			ExpectedStatus: statusCodeNotFound,
+		},
+		{
+			Name:           `grep match \d \w\w\ws`,
+			Input:          "4 cats",
+			Args:           []string{"grep", "-E", `\d \w\w\ws`},
+			ExpectedStatus: statusCodeOK,
+		},
+		{
+			Name:           `grep match \d \w\w\ws not found`,
+			Input:          "1 god",
+			Args:           []string{"grep", "-E", `\d \w\w\ws`},
+			ExpectedStatus: statusCodeNotFound,
+		},
+		{
+			Name:           `grep match \d apple`,
+			Input:          "sally has 3 apples",
+			Args:           []string{"grep", "-E", `\d apple`},
 			ExpectedStatus: statusCodeOK,
 		},
 	}

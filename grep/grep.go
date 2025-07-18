@@ -1,11 +1,9 @@
 package grep
 
 import (
-	"bytes"
 	"fmt"
 	"io"
 	"os"
-	"strings"
 	"unicode"
 	"unicode/utf8"
 )
@@ -20,6 +18,8 @@ type Grep struct {
 	args []string
 	r    io.Reader
 }
+
+type matchFunc func(r rune, patternIdx *int, pattern []rune) (bool, error)
 
 func NewGrep(args []string, r io.Reader) *Grep {
 	return &Grep{
@@ -50,7 +50,7 @@ func (g *Grep) run() (int, error) {
 		return statusCodeErr, fmt.Errorf("read input text: %w", err)
 	}
 
-	ok, err := g.matchLine(line, pattern)
+	ok, err := g.matchLine(line, []rune(pattern))
 	if err != nil {
 		return statusCodeErr, fmt.Errorf("matchLine: %w", err)
 	}
@@ -62,49 +62,105 @@ func (g *Grep) run() (int, error) {
 	return statusCodeOK, nil
 }
 
-//nolint:cyclop
-func (g *Grep) matchLine(line []byte, pattern string) (bool, error) {
-	var (
-		matchFunc  func(r rune) bool
-		groupChars = make(map[rune]struct{})
-	)
+func (g *Grep) matchLine(line []byte, pattern []rune) (bool, error) {
+	i := 0
+	patternIdx := 0
 
-	switch {
-	case pattern == `\d`:
-		matchFunc = unicode.IsDigit
-	case pattern == `\w`:
-		matchFunc = func(r rune) bool {
-			return unicode.IsLetter(r) || unicode.IsDigit(r) || r == '_'
-		}
-	case strings.HasPrefix(pattern, "[") && strings.HasSuffix(pattern, "]"):
-		for _, char := range strings.Trim(pattern, "[]^") {
-			groupChars[char] = struct{}{}
+	for i < len(line) {
+		r, size := utf8.DecodeRune(line[i:])
+		i += size
+
+		subMatchFound, err := submatch(r, &patternIdx, pattern)
+		if err != nil {
+			return false, err
 		}
 
-		positive := true
+		if !subMatchFound {
+			patternIdx = 0
 
-		if strings.HasPrefix(pattern, "[^") {
-			positive = false
+			continue
 		}
 
-		matchFunc = func(r rune) bool {
-			_, ok := groupChars[r]
-
-			return ok == positive
-		}
-	case utf8.RuneCountInString(pattern) == 1:
-		return bytes.ContainsAny(line, pattern), nil
-	default:
-		return false, fmt.Errorf("unsupported pattern: %q", pattern)
-	}
-
-	n := 0
-	for n < len(line) {
-		r, size := utf8.DecodeRune(line[n:])
-		if matchFunc(r) {
+		if patternIdx >= len(pattern) {
 			return true, nil
 		}
-		n += size
+	}
+
+	return false, nil
+}
+
+func submatch(r rune, patternIdx *int, pattern []rune) (bool, error) {
+	if *patternIdx >= len(pattern) {
+		return false, nil
+	}
+
+	var matchFunc matchFunc
+
+	switch pattern[*patternIdx] {
+	case '\\':
+		matchFunc = matchEscape
+	case '[':
+		matchFunc = matchCharGroup
+	default:
+		matchFunc = matchSingleChar
+	}
+
+	return matchFunc(r, patternIdx, pattern)
+}
+
+func matchEscape(r rune, patternIdx *int, pattern []rune) (bool, error) {
+	if *patternIdx+1 >= len(pattern) {
+		return false, nil
+	}
+
+	switch pattern[*patternIdx+1] {
+	case 'd':
+		if unicode.IsDigit(r) {
+			*patternIdx += 2
+
+			return true, nil
+		}
+	case 'w':
+		if unicode.IsLetter(r) || unicode.IsDigit(r) || r == '_' {
+			*patternIdx += 2
+
+			return true, nil
+		}
+	}
+
+	return false, nil
+}
+
+func matchCharGroup(r rune, patternIdx *int, pattern []rune) (bool, error) {
+	groupChars := make(map[rune]struct{})
+
+	*patternIdx++
+
+	positive := true
+	if pattern[*patternIdx] == '^' {
+		positive = false
+		*patternIdx++
+	}
+
+	for ; *patternIdx < len(pattern) && pattern[*patternIdx] != ']'; *patternIdx++ {
+		groupChars[pattern[*patternIdx]] = struct{}{}
+	}
+
+	if *patternIdx >= len(pattern) || pattern[*patternIdx] != ']' {
+		return false, fmt.Errorf("brackets [] not balanced")
+	}
+	*patternIdx++
+
+	_, ok := groupChars[r]
+
+	return ok == positive, nil
+}
+
+func matchSingleChar(r rune, patternIdx *int, pattern []rune) (bool, error) {
+	if r == pattern[*patternIdx] {
+		*patternIdx++
+
+		return true, nil
 	}
 
 	return false, nil
