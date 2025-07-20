@@ -61,13 +61,17 @@ func (g *Grep) run() (int, error) {
 }
 
 func (g *Grep) matchLine(line []byte, pattern []rune) (bool, error) {
+	if len(pattern) == 0 {
+		return true, nil
+	}
+
 	i := 0
 	patternIdx := 0
 
 	for i < len(line) {
 		r, _ := utf8.DecodeRune(line[i:])
 
-		subMatchFound, err := submatch(r, &i, &patternIdx, pattern)
+		subMatchFound, err := submatch(r, &i, line, &patternIdx, pattern)
 		if err != nil {
 			return false, err
 		}
@@ -83,10 +87,14 @@ func (g *Grep) matchLine(line []byte, pattern []rune) (bool, error) {
 		}
 	}
 
+	if patternIdx < len(pattern) && pattern[patternIdx] == '$' {
+		return true, nil
+	}
+
 	return false, nil
 }
 
-func submatch(r rune, lineIdx *int, patternIdx *int, pattern []rune) (bool, error) {
+func submatch(r rune, lineIdx *int, _ []byte, patternIdx *int, pattern []rune) (bool, error) {
 	if *patternIdx >= len(pattern) {
 		return false, nil
 	}
@@ -98,19 +106,19 @@ func submatch(r rune, lineIdx *int, patternIdx *int, pattern []rune) (bool, erro
 		return matchCharGroup(r, lineIdx, patternIdx, pattern)
 	case '^':
 		return matchStartOfStringAnchor(r, lineIdx, patternIdx)
+	case '$':
+		return matchEndOfStringAnchor(r, lineIdx)
 	default:
 		return matchSingleChar(r, lineIdx, patternIdx, pattern)
 	}
 }
 
 func matchEscape(r rune, lineIdx *int, patternIdx *int, pattern []rune) (bool, error) {
-	defer func() {
-		*lineIdx += utf8.RuneLen(r)
-	}()
-
 	if *patternIdx+1 >= len(pattern) {
 		return false, nil
 	}
+
+	defer advanceIndex(r, lineIdx)
 
 	matchFound := false
 
@@ -135,11 +143,7 @@ func matchEscape(r rune, lineIdx *int, patternIdx *int, pattern []rune) (bool, e
 }
 
 func matchCharGroup(r rune, lineIdx *int, patternIdx *int, pattern []rune) (bool, error) {
-	defer func() {
-		*lineIdx += utf8.RuneLen(r)
-	}()
-
-	groupChars := make(map[rune]struct{})
+	defer advanceIndex(r, lineIdx)
 
 	*patternIdx++
 
@@ -149,6 +153,7 @@ func matchCharGroup(r rune, lineIdx *int, patternIdx *int, pattern []rune) (bool
 		*patternIdx++
 	}
 
+	groupChars := make(map[rune]struct{})
 	for ; *patternIdx < len(pattern) && pattern[*patternIdx] != ']'; *patternIdx++ {
 		groupChars[pattern[*patternIdx]] = struct{}{}
 	}
@@ -171,22 +176,24 @@ func matchStartOfStringAnchor(r rune, lineIdx *int, patternIdx *int) (bool, erro
 		return true, nil
 	case *patternIdx == 0 && r == '\n':
 		*patternIdx++
-		*lineIdx += utf8.RuneLen(r)
+		advanceIndex(r, lineIdx)
 
 		return true, nil
-	case *lineIdx > 0:
-		*lineIdx += utf8.RuneLen(r)
+	default:
+		advanceIndex(r, lineIdx)
 
 		return false, nil
 	}
+}
+
+func matchEndOfStringAnchor(r rune, lineIdx *int) (bool, error) {
+	advanceIndex(r, lineIdx)
 
 	return false, nil
 }
 
 func matchSingleChar(r rune, lineIdx *int, patternIdx *int, pattern []rune) (bool, error) {
-	defer func() {
-		*lineIdx += utf8.RuneLen(r)
-	}()
+	defer advanceIndex(r, lineIdx)
 
 	if r == pattern[*patternIdx] {
 		*patternIdx++
@@ -195,4 +202,8 @@ func matchSingleChar(r rune, lineIdx *int, patternIdx *int, pattern []rune) (boo
 	}
 
 	return false, nil
+}
+
+func advanceIndex(r rune, lineIdx *int) {
+	*lineIdx += utf8.RuneLen(r)
 }
