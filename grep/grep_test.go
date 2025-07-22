@@ -279,6 +279,18 @@ func TestGrep(t *testing.T) {
 			ExpectedStatus: statusCodeErr,
 			Err:            "repetition-operator operand invalid",
 		},
+		{
+			Name:           `grep match .`,
+			Input:          "cat",
+			Args:           []string{"grep", "-E", `c.t`},
+			ExpectedStatus: statusCodeOK,
+		},
+		{
+			Name:           `grep match . not found`,
+			Input:          "cog",
+			Args:           []string{"grep", "-E", `c.t`},
+			ExpectedStatus: statusCodeNotFound,
+		},
 	}
 
 	for _, tCase := range tCases {

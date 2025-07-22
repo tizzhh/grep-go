@@ -22,6 +22,7 @@ const (
 	TokenCharGroup
 	TokenAnchorStart
 	TokenAnchorEnd
+	TokenAny
 )
 
 type Grep struct {
@@ -210,6 +211,10 @@ func tokenizePattern(pattern []rune) ([]*token, error) {
 			token.tType = TokenAnchorEnd
 			token.pattern = []rune{'$'}
 			i++
+		case '.':
+			token.tType = TokenAny
+			token.pattern = []rune{'.'}
+			i++
 		case '+', '?':
 			if len(prevToken.pattern) == 0 {
 				return nil, fmt.Errorf("repetition-operator operand invalid")
@@ -232,6 +237,7 @@ func tokenizePattern(pattern []rune) ([]*token, error) {
 	return tokens, nil
 }
 
+//nolint:cyclop
 func submatch(r rune, lineIdx int, tokensIdx int, tokens []*token) (int, bool) {
 	if tokensIdx >= len(tokens) || tokens == nil {
 		return utf8.RuneLen(r), false
@@ -251,6 +257,8 @@ func submatch(r rune, lineIdx int, tokensIdx int, tokens []*token) (int, bool) {
 		return matchStartOfStringAnchor(r, lineIdx, tokensIdx)
 	case TokenAnchorEnd:
 		return matchEndOfStringAnchor(r)
+	case TokenAny:
+		return matchAny(r)
 	case TokenLiteral:
 		fallthrough
 	default:
@@ -312,6 +320,10 @@ func matchStartOfStringAnchor(r rune, lineIdx int, tokensIdx int) (int, bool) {
 
 func matchEndOfStringAnchor(r rune) (int, bool) {
 	return utf8.RuneLen(r), false
+}
+
+func matchAny(r rune) (int, bool) {
+	return utf8.RuneLen(r), r != '\n'
 }
 
 func matchSingleChar(r rune, token token) (int, bool) {
