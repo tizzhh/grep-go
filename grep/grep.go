@@ -99,7 +99,7 @@ func (g *Grep) matchLine(line []byte, pattern []rune) (bool, error) {
 }
 
 func matchRecursive(lineIdx int, line []byte, tokenIdx int, tokens []*token) bool {
-	if tokenIdx == len(tokens) {
+	if tokenIdx >= len(tokens) {
 		return true
 	}
 
@@ -108,7 +108,9 @@ func matchRecursive(lineIdx int, line []byte, tokenIdx int, tokens []*token) boo
 			return tokenIdx+1 == len(tokens)
 		}
 
-		return false
+		if tokens[tokenIdx].modifier == 0 {
+			return false
+		}
 	}
 
 	token := tokens[tokenIdx]
@@ -122,27 +124,9 @@ func matchWithModifier(
 ) bool {
 	switch token.modifier {
 	case '+':
-		advance, ok := submatch(r, lineIdx, tokenIdx, tokens)
-		if !ok {
-			return false
-		}
-
-		consumed := lineIdx + advance
-
-		for consumed < len(line) {
-			if matchRecursive(consumed, line, tokenIdx+1, tokens) {
-				return true
-			}
-			r, _ = utf8.DecodeRune(line[consumed:])
-			advance, ok = submatch(r, consumed, tokenIdx, tokens)
-			if !ok {
-				break
-			}
-			consumed += advance
-		}
-
-		return false
-
+		return matchOneOrMany(r, lineIdx, line, tokenIdx, tokens)
+	case '?':
+		return matchZeroOrOne(r, lineIdx, line, tokenIdx, tokens)
 	default:
 		advance, ok := submatch(r, lineIdx, tokenIdx, tokens)
 		if !ok {
@@ -151,6 +135,38 @@ func matchWithModifier(
 
 		return matchRecursive(lineIdx+advance, line, tokenIdx+1, tokens)
 	}
+}
+
+func matchOneOrMany(r rune, lineIdx int, line []byte, tokenIdx int, tokens []*token) bool {
+	advance, ok := submatch(r, lineIdx, tokenIdx, tokens)
+	if !ok {
+		return false
+	}
+
+	consumed := lineIdx + advance
+
+	for consumed < len(line) {
+		if matchRecursive(consumed, line, tokenIdx+1, tokens) {
+			return true
+		}
+		r, _ = utf8.DecodeRune(line[consumed:])
+		advance, ok = submatch(r, consumed, tokenIdx, tokens)
+		if !ok {
+			break
+		}
+		consumed += advance
+	}
+
+	return false
+}
+
+func matchZeroOrOne(r rune, lineIdx int, line []byte, tokenIdx int, tokens []*token) bool {
+	advance, ok := submatch(r, lineIdx, tokenIdx, tokens)
+	if ok && matchRecursive(lineIdx+advance, line, tokenIdx+1, tokens) {
+		return true
+	}
+
+	return matchRecursive(lineIdx, line, tokenIdx+1, tokens)
 }
 
 //nolint:cyclop,funlen
@@ -194,7 +210,7 @@ func tokenizePattern(pattern []rune) ([]*token, error) {
 			token.tType = TokenAnchorEnd
 			token.pattern = []rune{'$'}
 			i++
-		case '+':
+		case '+', '?':
 			if len(prevToken.pattern) == 0 {
 				return nil, fmt.Errorf("repetition-operator operand invalid")
 			}
