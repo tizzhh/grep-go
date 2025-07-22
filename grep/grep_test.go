@@ -205,6 +205,43 @@ func TestGrep(t *testing.T) {
 			Args:           []string{"grep", "-E", `dog$`},
 			ExpectedStatus: statusCodeOK,
 		},
+		{
+			Name:           `grep match +`,
+			Input:          "caats",
+			Args:           []string{"grep", "-E", `ca+ts`},
+			ExpectedStatus: statusCodeOK,
+		},
+		{
+			Name:           `grep match + repetition of token+`,
+			Input:          "caaaaat",
+			Args:           []string{"grep", "-E", `ca+at`},
+			ExpectedStatus: statusCodeOK,
+		},
+		{
+			Name:           `grep match + repetition of token+ not found`,
+			Input:          "caaaat",
+			Args:           []string{"grep", "-E", `ca+aaaat`},
+			ExpectedStatus: statusCodeNotFound,
+		},
+		{
+			Name:           `grep match +`,
+			Input:          "cat",
+			Args:           []string{"grep", "-E", `ca+t`},
+			ExpectedStatus: statusCodeOK,
+		},
+		{
+			Name:           `grep match + not found`,
+			Input:          "dog",
+			Args:           []string{"grep", "-E", `a+`},
+			ExpectedStatus: statusCodeNotFound,
+		},
+		{
+			Name:           `grep match + invalid pattern`,
+			Input:          "dog",
+			Args:           []string{"grep", "-E", `+`},
+			ExpectedStatus: statusCodeErr,
+			Err:            "repetition-operator operand invalid",
+		},
 	}
 
 	for _, tCase := range tCases {

@@ -14,9 +14,25 @@ const (
 	statusCodeErr
 )
 
+type TokenType int
+
+const (
+	TokenLiteral TokenType = iota
+	TokenEscape
+	TokenCharGroup
+	TokenAnchorStart
+	TokenAnchorEnd
+)
+
 type Grep struct {
 	args []string
 	r    io.Reader
+}
+
+type token struct {
+	tType    TokenType
+	pattern  []rune
+	modifier rune
 }
 
 func NewGrep(args []string, r io.Reader) *Grep {
@@ -61,68 +77,179 @@ func (g *Grep) run() (int, error) {
 }
 
 func (g *Grep) matchLine(line []byte, pattern []rune) (bool, error) {
-	if len(pattern) == 0 {
-		return true, nil
+	tokens, err := tokenizePattern(pattern)
+	if err != nil {
+		return false, err
 	}
 
-	i := 0
-	patternIdx := 0
-
-	for i < len(line) {
-		r, _ := utf8.DecodeRune(line[i:])
-
-		subMatchFound, err := submatch(r, &i, line, &patternIdx, pattern)
-		if err != nil {
-			return false, err
-		}
-
-		if !subMatchFound {
-			patternIdx = 0
-
-			continue
-		}
-
-		if patternIdx >= len(pattern) {
+	for i := 0; i <= len(line); {
+		if matchRecursive(i, line, 0, tokens) {
 			return true, nil
 		}
-	}
 
-	if patternIdx < len(pattern) && pattern[patternIdx] == '$' {
-		return true, nil
+		if i >= len(line) {
+			break
+		}
+
+		_, size := utf8.DecodeRune(line[i:])
+		i += size
 	}
 
 	return false, nil
 }
 
-func submatch(r rune, lineIdx *int, _ []byte, patternIdx *int, pattern []rune) (bool, error) {
-	if *patternIdx >= len(pattern) {
-		return false, nil
+func matchRecursive(lineIdx int, line []byte, tokenIdx int, tokens []*token) bool {
+	if tokenIdx == len(tokens) {
+		return true
 	}
 
-	switch pattern[*patternIdx] {
-	case '\\':
-		return matchEscape(r, lineIdx, patternIdx, pattern)
-	case '[':
-		return matchCharGroup(r, lineIdx, patternIdx, pattern)
-	case '^':
-		return matchStartOfStringAnchor(r, lineIdx, patternIdx)
-	case '$':
-		return matchEndOfStringAnchor(r, lineIdx)
+	if lineIdx >= len(line) {
+		if tokens[tokenIdx].tType == TokenAnchorEnd {
+			return tokenIdx+1 == len(tokens)
+		}
+
+		return false
+	}
+
+	token := tokens[tokenIdx]
+	r, _ := utf8.DecodeRune(line[lineIdx:])
+
+	return matchWithModifier(r, lineIdx, line, tokenIdx, token, tokens)
+}
+
+func matchWithModifier(
+	r rune, lineIdx int, line []byte, tokenIdx int, token *token, tokens []*token,
+) bool {
+	switch token.modifier {
+	case '+':
+		advance, ok := submatch(r, lineIdx, tokenIdx, tokens)
+		if !ok {
+			return false
+		}
+
+		consumed := lineIdx + advance
+
+		for consumed < len(line) {
+			if matchRecursive(consumed, line, tokenIdx+1, tokens) {
+				return true
+			}
+			r, _ = utf8.DecodeRune(line[consumed:])
+			advance, ok = submatch(r, consumed, tokenIdx, tokens)
+			if !ok {
+				break
+			}
+			consumed += advance
+		}
+
+		return false
+
 	default:
-		return matchSingleChar(r, lineIdx, patternIdx, pattern)
+		advance, ok := submatch(r, lineIdx, tokenIdx, tokens)
+		if !ok {
+			return false
+		}
+
+		return matchRecursive(lineIdx+advance, line, tokenIdx+1, tokens)
 	}
 }
 
-func matchEscape(r rune, lineIdx *int, patternIdx *int, pattern []rune) (bool, error) {
-	if *patternIdx+1 >= len(pattern) {
-		return false, nil
+//nolint:cyclop,funlen
+func tokenizePattern(pattern []rune) ([]*token, error) {
+	tokens := []*token{}
+
+	prevToken := &token{}
+
+	for i := 0; i < len(pattern); {
+		token := &token{}
+
+		switch pattern[i] {
+		case '\\':
+			if i+1 >= len(pattern) {
+				return nil, fmt.Errorf("incomplete escape sequence")
+			}
+			token.tType = TokenEscape
+			token.pattern = []rune{'\\', pattern[i+1]}
+			i += 2
+		case '[':
+			token.tType = TokenCharGroup
+			charGroup := []rune{}
+
+			for ; i < len(pattern) && pattern[i] != ']'; i++ {
+				charGroup = append(charGroup, pattern[i])
+			}
+
+			if i >= len(pattern) || pattern[i] != ']' {
+				return nil, fmt.Errorf("brackets [] not balanced")
+			}
+
+			charGroup = append(charGroup, ']')
+
+			i++ // skip ]
+			token.pattern = charGroup
+		case '^':
+			token.tType = TokenAnchorStart
+			token.pattern = []rune{'^'}
+			i++
+		case '$':
+			token.tType = TokenAnchorEnd
+			token.pattern = []rune{'$'}
+			i++
+		case '+':
+			if len(prevToken.pattern) == 0 {
+				return nil, fmt.Errorf("repetition-operator operand invalid")
+			}
+
+			prevToken.modifier = pattern[i]
+			i++
+
+			continue
+		default:
+			token.tType = TokenLiteral
+			token.pattern = []rune{pattern[i]}
+			i++
+		}
+
+		prevToken = token
+		tokens = append(tokens, token)
 	}
 
-	defer advanceIndex(r, lineIdx)
+	return tokens, nil
+}
+
+func submatch(r rune, lineIdx int, tokensIdx int, tokens []*token) (int, bool) {
+	if tokensIdx >= len(tokens) || tokens == nil {
+		return utf8.RuneLen(r), false
+	}
+
+	token := *tokens[tokensIdx]
+	if len(token.pattern) == 0 {
+		return utf8.RuneLen(r), false
+	}
+
+	switch token.tType {
+	case TokenEscape:
+		return matchEscape(r, token)
+	case TokenCharGroup:
+		return matchCharGroup(r, token)
+	case TokenAnchorStart:
+		return matchStartOfStringAnchor(r, lineIdx, tokensIdx)
+	case TokenAnchorEnd:
+		return matchEndOfStringAnchor(r)
+	case TokenLiteral:
+		fallthrough
+	default:
+		return matchSingleChar(r, token)
+	}
+}
+
+func matchEscape(r rune, token token) (int, bool) {
+	if len(token.pattern) != 2 {
+		return utf8.RuneLen(r), false
+	}
 
 	matchFound := false
 
-	switch pattern[*patternIdx+1] {
+	switch token.pattern[1] {
 	case 'd':
 		if unicode.IsDigit(r) {
 			matchFound = true
@@ -133,77 +260,48 @@ func matchEscape(r rune, lineIdx *int, patternIdx *int, pattern []rune) (bool, e
 		}
 	}
 
-	if matchFound {
-		*patternIdx += 2
-
-		return true, nil
-	}
-
-	return false, nil
+	return utf8.RuneLen(r), matchFound
 }
 
-func matchCharGroup(r rune, lineIdx *int, patternIdx *int, pattern []rune) (bool, error) {
-	defer advanceIndex(r, lineIdx)
+func matchCharGroup(r rune, token token) (int, bool) {
+	patternIdx := 0
+	patternIdx++ // skip [
 
-	*patternIdx++
-
-	positive := true
-	if pattern[*patternIdx] == '^' {
-		positive = false
-		*patternIdx++
-	}
+	negative := token.pattern[patternIdx] == '^'
 
 	groupChars := make(map[rune]struct{})
-	for ; *patternIdx < len(pattern) && pattern[*patternIdx] != ']'; *patternIdx++ {
-		groupChars[pattern[*patternIdx]] = struct{}{}
+	for ; patternIdx < len(token.pattern) && token.pattern[patternIdx] != ']'; patternIdx++ {
+		groupChars[token.pattern[patternIdx]] = struct{}{}
 	}
-
-	if *patternIdx >= len(pattern) || pattern[*patternIdx] != ']' {
-		return false, fmt.Errorf("brackets [] not balanced")
-	}
-	*patternIdx++
 
 	_, ok := groupChars[r]
 
-	return ok == positive, nil
+	if ok != negative {
+		return utf8.RuneLen(r), true
+	}
+
+	return utf8.RuneLen(r), false
 }
 
-func matchStartOfStringAnchor(r rune, lineIdx *int, patternIdx *int) (bool, error) {
+func matchStartOfStringAnchor(r rune, lineIdx int, tokensIdx int) (int, bool) {
 	switch {
-	case *patternIdx == 0 && *lineIdx == 0:
-		*patternIdx++
-
-		return true, nil
-	case *patternIdx == 0 && r == '\n':
-		*patternIdx++
-		advanceIndex(r, lineIdx)
-
-		return true, nil
+	case tokensIdx == 0 && lineIdx == 0:
+		return 0, true
+	case tokensIdx == 0 && r == '\n':
+		return utf8.RuneLen(r), true
 	default:
-		advanceIndex(r, lineIdx)
-
-		return false, nil
+		return utf8.RuneLen(r), false
 	}
 }
 
-func matchEndOfStringAnchor(r rune, lineIdx *int) (bool, error) {
-	advanceIndex(r, lineIdx)
-
-	return false, nil
+func matchEndOfStringAnchor(r rune) (int, bool) {
+	return utf8.RuneLen(r), false
 }
 
-func matchSingleChar(r rune, lineIdx *int, patternIdx *int, pattern []rune) (bool, error) {
-	defer advanceIndex(r, lineIdx)
-
-	if r == pattern[*patternIdx] {
-		*patternIdx++
-
-		return true, nil
+func matchSingleChar(r rune, token token) (int, bool) {
+	if r == token.pattern[0] {
+		return utf8.RuneLen(r), true
 	}
 
-	return false, nil
-}
-
-func advanceIndex(r rune, lineIdx *int) {
-	*lineIdx += utf8.RuneLen(r)
+	return utf8.RuneLen(r), false
 }
